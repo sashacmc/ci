@@ -180,3 +180,83 @@ jobs:
             } else {
               console.log('✅ PR has required labels');
             }
+
+      - name: Get label-based checklist comment
+        id: label-checklist
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: |
+            // Find label-based checklist comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number
+            });
+
+            const labelComment = comments.find(c =>
+              c.user.type === 'Bot' &&
+              c.body.includes('🏷️ Label-Based Checklist')
+            );
+
+            return labelComment ? labelComment.body : '';
+
+      - name: Verify checklist items
+        id: verify
+        uses: actions/github-script@v7
+        env:
+          LABEL_CHECKLIST: ${{ steps.label-checklist.outputs.result }}
+        with:
+          result-encoding: string
+          script: |
+            const labelChecklistBody = process.env.LABEL_CHECKLIST;
+
+            // Count all checkboxes in label checklist comment only
+            const allCheckboxes = (labelChecklistBody.match(/- \[[ x]\]/gi) || []).length;
+            const checkedCheckboxes = (labelChecklistBody.match(/- \[x\]/gi) || []).length;
+            const uncheckedCheckboxes = allCheckboxes - checkedCheckboxes;
+
+            console.log(`Label checklist: ${checkedCheckboxes}/${allCheckboxes} checked`);
+            console.log(`Unchecked: ${uncheckedCheckboxes}`);
+
+            // Simple rule: ALL boxes must be checked
+            let status = 'success';
+            let message = `All label checklist items completed (${allCheckboxes}/${allCheckboxes})`;
+
+            if (uncheckedCheckboxes > 0) {
+              status = 'failure';
+              message = `Label checklist incomplete: ${uncheckedCheckboxes} unchecked item(s)`;
+            }
+
+            core.setOutput('status', status);
+            core.setOutput('message', message);
+            core.setOutput('checked', checkedCheckboxes);
+            core.setOutput('total', allCheckboxes);
+            core.setOutput('unchecked', uncheckedCheckboxes);
+
+            return JSON.stringify({
+              status,
+              message,
+              checked: checkedCheckboxes,
+              total: allCheckboxes,
+              unchecked: uncheckedCheckboxes
+            });
+
+      - name: Report checklist status
+        uses: actions/github-script@v7
+        env:
+          VERIFY_RESULT: ${{ steps.verify.outputs.result }}
+        with:
+          script: |
+            const result = JSON.parse(process.env.VERIFY_RESULT);
+            const status = '${{ steps.verify.outputs.status }}';
+            const message = `${{ steps.verify.outputs.message }}`;
+
+            console.log(`Status: ${status}`);
+            console.log(`Message: ${message}`);
+
+      - name: Fail if checklist incomplete
+        if: steps.verify.outputs.status == 'failure'
+        run: |
+          echo "::error::Label-based checklist verification failed. Please complete all required checklist items in the bot comment."
+          exit 1
