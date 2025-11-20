@@ -1,16 +1,15 @@
 name: Label-Based Checklist Verification
 
 on:
-  pull_request:
-    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
-    branches: ["**"]
-  issue_comment:
-    types: [created, edited]
-
-permissions:
-  pull-requests: read
-  contents: read
-  checks: write
+  workflow_call:
+    inputs:
+      runner:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+    secrets:
+      github-token:
+        required: true
 
 jobs:
   main:
