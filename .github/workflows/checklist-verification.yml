@@ -1,0 +1,162 @@
+name: Label-Based Checklist Verification
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+    branches: ["**"]
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  pull-requests: read
+  contents: read
+  checks: write
+
+jobs:
+  main:
+    name: Verify Label-Based Checklist Completion
+    runs-on: ubuntu-latest
+    # Only run on PRs (skip non-PR issue comments)
+    if: github.event_name == 'pull_request' || (github.event_name == 'issue_comment' && github.event.issue.pull_request)
+
+    steps:
+      - name: Get PR number
+        id: pr-number
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.eventName === 'pull_request') {
+              return context.payload.pull_request.number;
+            } else if (context.eventName === 'issue_comment') {
+              return context.payload.issue.number;
+            }
+            return null;
+
+      - name: Get label-based checklist comment
+        id: label-checklist
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ steps.pr-number.outputs.result }};
+            // Find label-based checklist comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber
+            });
+
+            const labelComment = comments.find(c =>
+              c.user.type === 'Bot' &&
+              c.body.includes('🏷️ Label-Based Checklist')
+            );
+
+            return labelComment ? labelComment.body : '';
+
+      - name: Verify checklist items
+        id: verify
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labelChecklistBody = ${{ steps.label-checklist.outputs.result }};
+
+            // Only check label-based checklist (ignore PR body)
+            const checklistBody = labelChecklistBody;
+
+            // Count checkbox items in label-based checklist only
+            const totalCheckboxes = (checklistBody.match(/- \[ \]/g) || []).length;
+            const checkedCheckboxes = (checklistBody.match(/- \[x\]/gi) || []).length;
+
+            console.log(`Label-based checklist checkboxes: ${checkedCheckboxes}/${totalCheckboxes}`);
+
+            // If no label checklist exists, skip verification
+            if (!checklistBody || totalCheckboxes === 0) {
+              console.log('No label-based checklist found. Skipping verification.');
+              core.setOutput('status', 'success');
+              core.setOutput('message', 'No label-based checklist requirements');
+              core.setOutput('completion', 100);
+              return {
+                status: 'success',
+                message: 'No label-based checklist requirements',
+                completion: 100,
+                checked: 0,
+                total: 0
+              };
+            }
+
+            // Calculate completion percentage
+            const completionPercent = totalCheckboxes > 0
+              ? Math.round((checkedCheckboxes / totalCheckboxes) * 100)
+              : 100;
+
+            // Determine status - only 100% passes
+            let status = 'success';
+            let message = `Label-based checklist: ${checkedCheckboxes}/${totalCheckboxes} items completed (${completionPercent}%)`;
+
+            if (completionPercent < 100) {
+              status = 'failure';
+              message = `Label-based checklist incomplete: ${checkedCheckboxes}/${totalCheckboxes} items completed (${completionPercent}%). All items must be completed (100% required).`;
+            }
+
+            core.setOutput('status', status);
+            core.setOutput('message', message);
+            core.setOutput('completion', completionPercent);
+
+            return {
+              status,
+              message,
+              completion: completionPercent,
+              checked: checkedCheckboxes,
+              total: totalCheckboxes
+            };
+
+      - name: Create or update check run
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const result = ${{ steps.verify.outputs.result }};
+            const status = '${{ steps.verify.outputs.status }}';
+            const message = `${{ steps.verify.outputs.message }}`;
+            const completion = ${{ steps.verify.outputs.completion }};
+
+            let conclusion = status === 'success' ? 'success' :
+                           status === 'neutral' ? 'neutral' : 'failure';
+
+            // Create check run
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'Label-Based Checklist Verification',
+              head_sha: context.payload.pull_request.head.sha,
+              status: 'completed',
+              conclusion: conclusion,
+              output: {
+                title: `Label-Based Checklist Completion: ${completion}%`,
+                summary: message,
+                text: `
+            ## Label-Based Checklist Status
+
+            **Completion:** ${result.checked}/${result.total} items (${completion}%)
+
+            ${message}
+
+            ## Requirements
+
+            - ✅ All checklist items must be completed (100%)
+
+            ## Next Steps
+
+            ${conclusion === 'success'
+              ? '✅ Label-based checklist verification passed! Ready for review.'
+              : '⚠️ Please complete the required checklist items in the label-based checklist comment (🏷️ Label-Based Checklist).'}
+
+            ---
+            *This check verifies that label-based checklist items (from check-labels workflow) are completed according to enterprise quality standards.*
+                `
+              }
+            });
+
+      - name: Set job status
+        if: steps.verify.outputs.status == 'failure'
+        run: |
+          echo "::error::Label-based checklist verification failed. Please complete required checklist items in the label-based checklist comment."
+          exit 1
