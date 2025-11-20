@@ -14,6 +14,8 @@ on:
 jobs:
   main:
     runs-on: ${{ inputs.runner }}
+    env:
+      REQUIRED_LABELS: '["api-sync", "breaking-change", "bug", "ci", "dependencies", "documentation", "enhancement", "new feature", "internal"]'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -76,7 +78,7 @@ jobs:
 
             // Generate final comment
             let comment = '';
-            const required_labels = ["api-sync", "breaking-change", "bug", "ci", "dependencies", "documentation", "enhancement", "new feature", "internal"];
+            const required_labels = JSON.parse(process.env.REQUIRED_LABELS);
             const hasRequiredLabel = labels.some(l => required_labels.includes(l));
 
             if (!hasRequiredLabel) {
@@ -163,3 +165,18 @@ jobs:
             }
 
             console.log(`Generated ${result.checklistCount} checklist(s) for ${result.labelCount} label(s)`);
+
+      - name: Check for required labels
+        uses: actions/github-script@v7
+        env:
+          RESULT_JSON: ${{ steps.generate.outputs.result }}
+        with:
+          script: |
+            const result = JSON.parse(process.env.RESULT_JSON);
+            const required_labels = JSON.parse(process.env.REQUIRED_LABELS);
+
+            if (result.checklistCount === 0) {
+              core.setFailed(`❌ This PR must have at least one of the required labels: ${required_labels.join(', ')}`);
+            } else {
+              console.log('✅ PR has required labels');
+            }
