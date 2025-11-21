@@ -9,7 +9,7 @@ on:
         default: "ubuntu-latest"
     secrets:
       github-token:
-        required: true
+        required: false
 
 jobs:
   main:
