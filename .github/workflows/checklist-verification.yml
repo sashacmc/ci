@@ -62,10 +62,11 @@ jobs:
             const checklistBody = labelChecklistBody;
 
             // Count checkbox items in label-based checklist only
-            const totalCheckboxes = (checklistBody.match(/- \[ \]/g) || []).length;
+            const uncheckedCheckboxes = (checklistBody.match(/- \[ \]/g) || []).length;
             const checkedCheckboxes = (checklistBody.match(/- \[x\]/gi) || []).length;
+            const totalCheckboxes = uncheckedCheckboxes + checkedCheckboxes;
 
-            console.log(`Label-based checklist checkboxes: ${checkedCheckboxes}/${totalCheckboxes}`);
+            console.log(`Label-based checklist checkboxes: ${checkedCheckboxes}/${totalCheckboxes} (${uncheckedCheckboxes} unchecked)`);
 
             // If no label checklist exists, skip verification
             if (!checklistBody || totalCheckboxes === 0) {
