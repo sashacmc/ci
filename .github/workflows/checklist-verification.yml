@@ -16,7 +16,7 @@ jobs:
     name: Verify Label-Based Checklist Completion
     runs-on: ubuntu-latest
     # Only run on PRs (skip non-PR issue comments)
-    if: github.event_name == 'pull_request' || (github.event_name == 'issue_comment' && github.event.issue.pull_request)
+    if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target' || (github.event_name == 'issue_comment' && github.event.issue.pull_request)
 
     steps:
       - name: Get PR number
@@ -24,7 +24,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            if (context.eventName === 'pull_request') {
+            if (context.eventName === 'pull_request' || context.eventName === 'pull_request_target') {
               return context.payload.pull_request.number;
             } else if (context.eventName === 'issue_comment') {
               return context.payload.issue.number;
